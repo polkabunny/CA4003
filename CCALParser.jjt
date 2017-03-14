@@ -1,0 +1,272 @@
+/*******************************
+ ***** SECTION 1 - OPTIONS *****
+ *******************************/
+options {
+    IGNORE_CASE = true;
+    JAVA_UNICODE_ESCAPE = true;
+    MULTI = true;
+    VISITOR = true;
+    NODE_DEFAULT_VOID = true;
+}
+
+/*********************************
+ ***** SECTION 2 - USER CODE *****
+ *********************************/
+
+PARSER_BEGIN(CCALParser)
+
+import java.io.*;
+import java.util.*;
+
+public class CCALParser {
+    public static Hashtable ST = new Hashtable();
+
+    public static void main(String args[]) throws ParseException, FileNotFoundException {
+
+        String temp;
+        STC temp2;
+        if (args.length < 1) {
+            System.out.println("Please pass in the filename.");
+            System.exit(1);
+        }
+
+        System.out.println("Reading from file " +args[0] + " . . .");
+        CCALParser p = new CCALParser(new FileInputStream(args[0]));
+        SimpleNode root = p.program();
+
+        System.out.println("Abstract Syntax Tree: ");
+        root.dump(" ");
+
+        /*System.out.println();
+        System.out.println("Symbol Table:");
+
+        Enumeration t = ST.keys();
+        while(t.hasMoreElements()) {
+            temp = (String)t.nextElement();
+            temp2 = (STC)ST.get(temp);
+            System.out.println(temp);
+            if(temp2.type != null) {
+                System.out.println(" type = " + temp2.type);
+            }
+            if(temp2.value != null) {
+                System.out.println(" value = " + temp2.value);
+            }
+        }
+
+        System.out.println();
+        System.out.println("Semantic Checker: ");*/
+        SemanticCheckVisitor visit = new SemanticCheckVisitor();
+        root.jjtAccept(visit, null);
+    }
+}
+
+PARSER_END(CCALParser)
+
+/*****************************************
+ ***** SECTION 3 - TOKEN DEFINITIONS *****
+ *****************************************/
+
+TOKEN_MGR_DECLS : {
+    static int commentNesting = 0;
+    static int linenumber = 0;
+}
+
+SKIP : /*** Ignoring spaces/tabs/newlines ***/ {
+      " "
+    | "\t"
+    | "\n" {linenumber++;}
+    | "\r"
+    | "\f"
+}
+
+SKIP : /* COMMENTS */ {
+      < "//" (~["\n"])* "\n" >
+    | < "/*" > { commentNesting++; } : NESTED_COMMENT
+}
+
+<NESTED_COMMENT> SKIP : {
+      "/*" { commentNesting++; }
+    | "*/" { commentNesting--;
+            if (commentNesting == 0)
+                SwitchTo(DEFAULT);
+            }
+    | <~[]>
+}
+
+TOKEN : /* Keywords */ {
+      < VAR : "var" >
+    | < CONST : "const" >
+    | < RETURN : "return" >
+    | < INTEGER : "integer" >
+    | < BOOLEAN : "boolean" >
+    | < VOID : "void" >
+    | < MAIN : "main" >
+    | < IF : "if" >
+    | < ELSE : "else" >
+    | < TRUE : "true" >
+    | < FALSE : "false" >
+    | < WHILE : "while" >
+    | < TKNSKIP : "skip" >
+}
+
+TOKEN : /* Punctuation */ {
+      < COMMA : "," >
+    | < SEMIC : ";" >
+    | < COLON : ":" >
+    | < EQUALS : "=" >
+    | < LFTBRC : "{" >
+    | < RGTBRC : "}" >
+    | < LBR : "(" >
+    | < RBR : ")" >
+    | < PLUS_SIGN : "+" >
+    | < MINUS_SIGN : "-" >
+    | < TILDE : "~" >
+    | < LOGOR : "||" >
+    | < LOGAND : "&&" >
+    | < LOGEQ : "==" >
+    | < LOGINEQ : "!=" >
+    | < LESSTHN : "<" >
+    | < LESSTHNEQ : "<=" >
+    | < GRTRTHN : ">" >
+    | < GRTRTHNEQ : ">=" >
+}
+
+TOKEN : /* Numbers */ {
+      < NUM : "0" | (<MINUS_SIGN>)? (<STARTDIGIT>)+ (<DIGIT>)* >
+    | < #STARTDIGIT : ["1" - "9"] >
+    | < #DIGIT : ["0" - "9"] >
+}
+
+TOKEN : /* Identifiers */ {
+      <ID : (<LETTER>)(<APLHANUMERIC>|(<UNDERSCORE>)?)* >
+    | <#LETTER : ["a" - "z", "A" - "Z"] >
+    | <#APLHANUMERIC : ["a" - "z", "A" - "Z", "0" - "9"] >
+    | <#UNDERSCORE : "_" >
+}
+
+TOKEN : /* Anything not recognised so far */ {
+      < OTHER : ~[] >
+}
+
+/***********************************
+ ***** SECTION 4 - THE GRAMMAR *****
+ ***********************************/
+
+SimpleNode program() #Program : {} {
+    (decl_list() function_list() main()) {return jjtThis;}
+}
+
+void decl_list() : {} {
+      (decl() <SEMIC> decl_list())
+    | {}
+}
+
+void function() #Function : {Token t; String name; String number;} {
+    t = type() {jjtThis.value = t.image;} name = identifier() <LBR> parameter_list() <RBR> <LFTBRC>
+        (decl_list())
+        (statement_block())
+        <RETURN> <LBR> (number = expression() /*{ST.put(name, new STC(t.image, number));}*/ | {}) <RBR> <SEMIC>
+    <RGTBRC>
+}
+
+void decl() : {} {
+      var_decl()
+    | const_decl()
+}
+
+void var_decl() #Var_Decl : {Token token; String t;} {
+    <VAR> t = identifier() <COLON> token = type()
+    {jjtThis.value = token.image; /*ST.put(name, new STC(t.image, "null"));*/}
+}
+
+void const_decl() #Const_Decl : {Token t; String name; String type;} {
+    <CONST> name = identifier() <COLON> t = type() <EQUALS> expression()
+    {jjtThis.value = t.image; /*ST.put(name, new STC(t.image, number));*/}
+}
+
+void function_list() : {} {
+      (function() function_list() | {})
+}
+
+String identifier() #Identifier : {Token t;} {
+    t = <ID> {jjtThis.value = t.image; return t.image;}
+}
+
+Token type() #Type : {Token t;} {
+      t = <INTEGER> {return t;}
+    | t = <BOOLEAN> {return t;}
+    | t = <VOID> {return t;}
+}
+
+void parameter_list() : {} {
+      nemp_parameter_list()
+    | {}
+}
+
+void nemp_parameter_list() : {Token t; String name;} {
+      identifier() <COLON> type() (<COMMA> nemp_parameter_list())?
+}
+
+void main() #Main : {} {
+    <MAIN> <LFTBRC>
+        (decl_list())
+        (statement_block())
+    <RGTBRC>
+}
+
+void statement_block() : {} {
+      (<LBR> statement() statement_block() <RBR>)
+    | (statement() statement_block())
+    | {}
+}
+
+void statement() #Statement : {Token t;} {
+      (identifier() (<EQUALS> expression() | (identifier() <LBR> arg_list() <RBR>)) <SEMIC>)
+    | (<LFTBRC> statement_block() <RGTBRC>)
+    | (t = <IF> condition() <LFTBRC> statement_block() <RGTBRC> <ELSE> <LFTBRC> statement() <RGTBRC>)
+    | (t = <WHILE> condition() <LFTBRC> statement_block() <RGTBRC>)
+    | (t = <TKNSKIP> <SEMIC>)
+}
+
+String expression() #Expression : {String number; String frag; Token t;} {
+      number = fragment() (
+            t = <PLUS_SIGN> frag = fragment()
+                {jjtThis.value = t.image; return number + t.image + frag;}
+            | t = <MINUS_SIGN> frag = fragment()
+                {jjtThis.value = t.image; return number + t.image + frag;}
+      )? {return number;}
+}
+
+String fragment() : {String t;} {
+      (<MINUS_SIGN>)? t = identifier() {return t;}
+    | t = number() {return t;}
+    | t = bool() {return t;}
+    | <LBR> t = expression() <RBR> {return t;}
+}
+
+String bool() #Boolean : {Token t;} {
+      (t = <TRUE> | t = <FALSE>) {jjtThis.value = t.image;  return t.image;}
+}
+
+String number() #Number : {Token t;} {
+      t = <NUM> {jjtThis.value = t.image; return t.image;}
+}
+
+String condition() : {Token token; String t; String cond;} {
+    (t = base_condition() (LOOKAHEAD(2)(token = <LOGOR> | token = <LOGAND>) cond = base_condition())?)
+    {return t;}
+}
+
+String base_condition() #Base_Condition : {Token token; String t;} {
+      (<TILDE> t = condition()) {return t;}
+    | LOOKAHEAD(2) <LBR> t = condition() <RBR> {return t;}
+    | (t = expression()
+    (token = <LOGEQ> | token = <LOGINEQ> | token = <GRTRTHN> | token = <GRTRTHNEQ> | token = <LESSTHN> | token = <LESSTHNEQ>)
+        t = expression()) {jjtThis.value = token.image; return t;}
+}
+
+/* Combination or arg_list() and nemp_arg_list() */
+void arg_list() #Arg_List : {} {
+      (identifier() (<COMMA> identifier())*
+    | {})
+}
