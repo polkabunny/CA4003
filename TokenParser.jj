@@ -1,0 +1,269 @@
+/*******************************
+ ***** SECTION 1 - OPTIONS *****
+ *******************************/
+options {
+    IGNORE_CASE = true;
+    JAVA_UNICODE_ESCAPE = true;
+}
+
+/*********************************
+ ***** SECTION 2 - USER CODE *****
+ *********************************/
+
+PARSER_BEGIN(TokenParser)
+
+import java.io.*;
+import java.util.*;
+
+public class TokenParser {
+
+    public static void main(String args[]) {
+
+        TokenParser p;
+        if (args.length == 0) {
+            System.out.println("Reading from standard input . . .");
+            p = new TokenParser(System.in);
+        } else if (args.length == 1) {
+            try {
+                p = new TokenParser(new java.io.FileInputStream(args[0]));
+            } catch (java.io.FileNotFoundException e) {
+                System.err.println("File " + args[0] + " not found.");
+                return;
+            }
+        } else {
+            System.out.println("Token Parser: Usage is one of:");
+            System.out.println(" java TokenParser < inputfile");
+            System.out.println("OR");
+            System.out.println(" java TokenParser inputfile");
+            return;
+        }
+
+        /*
+        * We've now initialised the tokeniser to read from the appropriate place,
+        * so just keep reading tokens and printing them until we hit EOF
+        */
+
+        for (Token t = getNextToken(); t.kind != EOF; t = getNextToken()) {
+            // Print out the actual text for the constants, identifiers etc.
+            if (t.kind == NUM) {
+                System.out.print("Number");
+                System.out.print("(" + t.image + ") ");
+            } else if (t.kind == ID) {
+                System.out.print("Identifier");
+                System.out.print("(" + t.image + ") ");
+            } else
+                System.out.print(t.image + " ");
+        }
+    }
+}
+PARSER_END(TokenParser)
+
+/*****************************************
+ ***** SECTION 3 - TOKEN DEFINITIONS *****
+ *****************************************/
+
+TOKEN_MGR_DECLS : {
+    static int commentNesting = 0;
+}
+
+SKIP : /*** Ignoring spaces/tabs/newlines ***/ {
+      " "
+    | "\t"
+    | "\n"
+    | "\r"
+    | "\f"
+}
+
+SKIP : /* COMMENTS */ {
+      < "//" (~["\n"])* "\n" >
+    | < "/*" > { commentNesting++; } : NESTED_COMMENT
+}
+
+<NESTED_COMMENT> SKIP : {
+      "/*" { commentNesting++; }
+    | "*/" { commentNesting--;
+            if (commentNesting == 0)
+                SwitchTo(DEFAULT);
+            }
+    | <~[]>
+}
+
+/* Dealing with epsilon */
+TOKEN : {
+    < EMPTY : "" > : MATCH_NON_EMPTY
+}
+
+<MATCH_NON_EMPTY> TOKEN : {
+    < NON_EMPTY : ~[] >
+}
+
+TOKEN : /* Keywords */ {
+      < VAR : "var" >
+    | < CONST : "const" >
+    | < RETURN : "return" >
+    | < INTEGER : "integer" >
+    | < BOOLEAN : "boolean" >
+    | < VOID : "void" >
+    | < MAIN : "main" >
+    | < IF : "if" >
+    | < ELSE : "else" >
+    | < TRUE : "true" >
+    | < FALSE : "false" >
+    | < WHILE : "while" >
+    | < TKNSKIP : "skip" >
+}
+
+TOKEN : /* Punctuation */ {
+      < COMMA : "," >
+    | < SEMIC : ";" >
+    | < COLON : ":" >
+    | < EQUALS : "=" >
+    | < LFTBRC : "{" >
+    | < RGTBRC : "}" >
+    | < LBR : "(" >
+    | < RBR : ")" >
+    | < PLUS_SIGN : "+" >
+    | < MINUS_SIGN : "-" >
+    | < TILDE : "~" >
+    | < LOGOR : "||" >
+    | < LOGAND : "&&" >
+    | < LOGEQ : "==" >
+    | < LOGINEQ : "!=" >
+    | < LESSTHN : "<" >
+    | < LESSTHNEQ : "<=" >
+    | < GRTRTHN : ">" >
+    | < GRTRTHNEQ : ">=" >
+}
+
+TOKEN : /* Numbers */ {
+      < NUM : (<MINUS_SIGN>)? (<STARTDIGIT>)+ (<DIGIT>)* >
+    | < #STARTDIGIT : ["1" - "9"] >
+    | < #DIGIT : ["0" - "9"] >
+}
+
+TOKEN : /* Identifiers */ {
+      <ID : (<LETTER>)(<APLHANUMERIC>|<UNDERSCORE>)* >
+    | <#LETTER : ["a" - "z", "A" - "Z"] >
+    | <#APLHANUMERIC : ["a" - "z", "A" - "Z", "0" - "9"] >
+    | <#UNDERSCORE : "_" >
+}
+
+TOKEN : /* Anything not recognised so far */ {
+      < OTHER : ~[] >
+}
+
+/***********************************
+ ***** SECTION 4 - THE GRAMMAR *****
+ ***********************************/
+
+void program() : {} {
+    decl_list() function_list() main()
+}
+
+void decl_list() : {} {
+      (<LBR> decl() <SEMIC> decl_list() <RBR>)
+    | <EMPTY>
+}
+
+void decl() : {} {
+      var_decl()
+    | const_decl()
+}
+
+void var_decl() : {} {
+    (<VAR> <COLON> type())
+}
+
+void const_decl() : {} {
+    (<CONST> <COLON> type() <EQUALS> expression())
+}
+
+void function_list() : {} {
+      <LBR>(function() function_list())
+    | <EMPTY><RBR>
+}
+
+void function() : {} {
+    type() <ID> <LBR> parameter_list() <RBR> <LFTBRC>
+        (decl_list())
+        (statement_block())
+        <RETURN> <LBR> expression() | <EMPTY> <RBR> <SEMIC>
+    <RGTBRC>
+}
+
+void type() : {Token t;} {
+      <INTEGER>
+    | <BOOLEAN>
+    | <VOID>
+}
+
+void parameter_list() : {} {
+      nemp_parameter_list()
+    | <EMPTY>
+}
+
+void nemp_parameter_list() : {} {
+        <ID> (<COLON> type() | <COMMA> nemp_parameter_list())
+}
+
+void main() : {} {
+    <MAIN> <LFTBRC>
+        (decl_list())
+        (statement_block())
+    <RGTBRC>
+}
+
+void statement_block() : {} {
+      (statement() statement_block())
+    | <EMPTY>
+}
+
+void statement() : {} {
+      <ID> (<EQUALS> expression() | (<ID>)?<LBR> arg_list() <RBR>) <SEMIC>
+    | (<LFTBRC> statement_block() <RGTBRC>)
+    | (<IF> condition() <LFTBRC> statement_block() <RGTBRC> <ELSE> <LFTBRC> statement_block() <RGTBRC>)
+    | (<WHILE> condition() <LFTBRC> statement_block() <RGTBRC>)
+    | (<TKNSKIP> <SEMIC>)
+}
+
+void expression() : {} {
+      fragment() (binary_arith_op() fragment())?
+}
+
+void binary_arith_op() : {} {
+      <PLUS_SIGN>
+    | <MINUS_SIGN>
+}
+
+void fragment() : {} {
+      (<MINUS_SIGN>)? <ID>
+    | <NUM>
+    | <TRUE>
+    | <FALSE>
+    | <LBR> expression() <RBR>
+}
+
+void condition() : {} {
+    base_condition() (<LOGOR> | <LOGAND>) base_condition()
+}
+
+void base_condition() : {} {
+      <TILDE> condition()
+    | LOOKAHEAD(2) <LBR> condition() <RBR>
+    | expression() comp_op() expression()
+}
+
+void comp_op() : {} {
+      <LOGEQ>
+    | <LOGINEQ>
+    | <GRTRTHN>
+    | <GRTRTHNEQ>
+    | <LESSTHN>
+    | <LESSTHNEQ>
+}
+
+/* Combination or arg_list() and nemp_arg_list() */
+void arg_list() : {} {
+      <ID> (<COMMA> <ID>)*
+    | <EMPTY>
+}
